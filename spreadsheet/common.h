@@ -26,6 +26,12 @@ struct Position {
     static const Position NONE;
 };
 
+struct PositionHasher {
+    size_t operator() (const Position& pos) const {
+        return std::hash<int>{}(pos.row) + 13 * std::hash<int>{}(pos.col);
+    }
+};
+
 struct Size {
     int rows = 0;
     int cols = 0;
@@ -43,11 +49,8 @@ public:
     };
 
     FormulaError(Category category);
-
     Category GetCategory() const;
-
     bool operator==(FormulaError rhs) const;
-
     std::string_view ToString() const;
 
 private:
@@ -92,6 +95,7 @@ public:
     // редактирование. В случае текстовой ячейки это её текст (возможно,
     // содержащий экранирующие символы). В случае формулы - её выражение.
     virtual std::string GetText() const = 0;
+    virtual void InvalidateCache() = 0;
 
     // Возвращает список ячеек, которые непосредственно задействованы в данной
     // формуле. Список отсортирован по возрастанию и не содержит повторяющихся

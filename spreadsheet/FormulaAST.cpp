@@ -72,7 +72,7 @@ public:
     virtual ~Expr() = default;
     virtual void Print(std::ostream& out) const = 0;
     virtual void DoPrintFormula(std::ostream& out, ExprPrecedence precedence) const = 0;
-    virtual double Evaluate(/*добавьте сюда нужные аргументы*/ args) const = 0;
+    virtual double Evaluate(const SheetInterface& sheet) const = 0;
 
     // higher is tighter
     virtual ExprPrecedence GetPrecedence() const = 0;
@@ -142,8 +142,29 @@ public:
         }
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/) const override {
-			// Скопируйте ваше решение из предыдущих уроков.
+    double Evaluate(const SheetInterface& sheet) const override {
+        double lhs = lhs_->Evaluate(sheet);
+        double rhs = rhs_->Evaluate(sheet);
+        double result = 0.0;
+        switch (type_) 
+        {
+        case Add:
+            result = lhs + rhs;
+            break;
+        case Subtract:
+            result = lhs - rhs;
+            break;
+        case Multiply:
+            result = lhs * rhs;
+            break;
+        case Divide:
+            result = lhs / rhs;
+        }
+
+        if (std::isfinite(result)) {
+            return result; 
+        }
+        throw FormulaError(FormulaError::Category::Div0);
     }
 
 private:
@@ -180,8 +201,9 @@ public:
         return EP_UNARY;
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/ args) const override {
-        // Скопируйте ваше решение из предыдущих уроков.
+    double Evaluate(const SheetInterface& sheet) const override {
+        double result = operand_.get()->Evaluate(sheet);
+        return type_ == UnaryMinus ? (-1) * result : result;
     }
 
 private:
@@ -192,14 +214,14 @@ private:
 class CellExpr final : public Expr {
 public:
     explicit CellExpr(const Position* cell)
-        : cell_(cell) {
-    }
-
+        : cell_pos_(cell) 
+    {}
+    
     void Print(std::ostream& out) const override {
-        if (!cell_->IsValid()) {
+        if (!cell_pos_->IsValid()) {
             out << FormulaError::Category::Ref;
         } else {
-            out << cell_->ToString();
+            out << cell_pos_->ToString();
         }
     }
 
@@ -211,12 +233,39 @@ public:
         return EP_ATOM;
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/ args) const override {
-        // реализуйте метод.
+    double Evaluate(const SheetInterface& sheet) const override {
+        if (!cell_pos_->IsValid()) {
+            throw FormulaError(FormulaError::Category::Ref);
+        }
+        if (!(sheet.GetCell(*cell_pos_))) {
+            return 0.0;
+        }
+
+        CellInterface::Value value = sheet.GetCell(*cell_pos_)->GetValue();
+
+        if (std::holds_alternative<double>(value)) {
+            return std::get<double>(value);
+        }
+
+        if (std::holds_alternative<std::string>(value)) {
+            std::string str = std::get<std::string>(value);
+            if (str.empty()) {
+                return 0;
+            } 
+            try {
+                double tmp = std::stod(str);
+                return tmp;
+            }
+            catch (const std::invalid_argument& exc) {
+                throw FormulaError(FormulaError::Category::Value);
+            }
+        }
+
+        throw std::get<FormulaError>(value);
     }
 
 private:
-    const Position* cell_;
+    const Position* cell_pos_;
 };
 
 class NumberExpr final : public Expr {
@@ -237,7 +286,7 @@ public:
         return EP_ATOM;
     }
 
-    double Evaluate(/*добавьте нужные аргументы*/ args) const override {
+    double Evaluate(const SheetInterface& sheet) const override {
         return value_;
     }
 
@@ -365,7 +414,13 @@ FormulaAST ParseFormulaAST(std::istream& in) {
     parser.setErrorHandler(error_handler);
     parser.removeErrorListeners();
 
-    tree::ParseTree* tree = parser.main();
+    tree::ParseTree* tree;
+    try {
+        tree = parser.main();
+    }
+    catch (...) {
+        throw FormulaException("Formula exception");
+    }
     ASTImpl::ParseASTListener listener;
     tree::ParseTreeWalker::DEFAULT.walk(&listener, tree);
 
@@ -391,8 +446,8 @@ void FormulaAST::PrintFormula(std::ostream& out) const {
     root_expr_->PrintFormula(out, ASTImpl::EP_ATOM);
 }
 
-double FormulaAST::Execute(/*добавьте нужные аргументы*/ args) const {
-    return root_expr_->Evaluate(/*добавьте нужные аргументы*/ args);
+double FormulaAST::Execute(const SheetInterface& sheet) const {
+    return root_expr_->Evaluate(sheet);
 }
 
 FormulaAST::FormulaAST(std::unique_ptr<ASTImpl::Expr> root_expr, std::forward_list<Position> cells)
