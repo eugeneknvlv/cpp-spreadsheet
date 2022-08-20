@@ -15,23 +15,7 @@ void Sheet::SetCell(Position pos, std::string text) {
         throw InvalidPositionException("Invalid position"s);
     }
     ResizeSheetIfNeeded(pos);
-    std::string old_cell_state = GetCell(pos)->GetText();
-    sheet_[pos.row][pos.col].Set(text, this);
-    ++row_to_cell_count_[pos.row];
-    ++col_to_cell_count_[pos.col];
-    if (sheet_[pos.row][pos.col].GetType() == Cell::Type::Formula) {
-        auto old_dependencies_state = dependencies_;
-        for (const Position& referenced_pos : sheet_[pos.row][pos.col].GetReferencedCells()) {
-            dependencies_[referenced_pos].insert(pos);
-        }
-        if (IsCircularDependent(pos, pos)) {
-            dependencies_ = old_dependencies_state;
-            SetCell(pos, old_cell_state);
-            throw CircularDependencyException("Circular dependency"s);
-        }
-    }
-    ++row_to_cell_count_[pos.row];
-    ++col_to_cell_count_[pos.col];
+    ProcessCellSetting(std::move(pos), std::move(text));
     InvalidateCache(pos);
 }
 
@@ -40,29 +24,16 @@ const CellInterface* Sheet::GetCell(Position pos) const {
 }
 
 CellInterface* Sheet::GetCell(Position pos) {
-    if (!pos.IsValid()) {
-        throw InvalidPositionException("Invalid position"s);
-    }
-    if (sheet_.size() == 0) {
-        return nullptr;
-    }
-    if (pos.row >= static_cast<int>(sheet_.size()) || pos.col >= static_cast<int>(sheet_[0].size())) {
+    if (!CheckPositionCorrectness(pos)) {
         return nullptr;
     }
     return &sheet_[pos.row][pos.col];
 }
 
 void Sheet::ClearCell(Position pos) {
-    if (!pos.IsValid()) {
-        throw InvalidPositionException("Invalid position"s);
-    }
-    if (sheet_.size() == 0) {
+    if (!CheckPositionCorrectness(pos)) {
         return;
     }
-    if (pos.row >= static_cast<int>(sheet_.size()) || pos.col >= static_cast<int>(sheet_[0].size())) {
-        return;
-    }
-
     sheet_[pos.row][pos.col].Clear();
     AdjustMapsAfterErasing(pos);
 }
@@ -71,14 +42,19 @@ Size Sheet::GetPrintableSize() const {
     if (row_to_cell_count_.empty() || col_to_cell_count_.empty()) {
         return {0, 0};
     }
-    return { prev(row_to_cell_count_.end())->first + 1, prev(col_to_cell_count_.end())->first + 1 };
+
+    return 
+    { 
+        prev(row_to_cell_count_.end())->first + 1, 
+        prev(col_to_cell_count_.end())->first + 1 
+    };
 }
 
 void Sheet::PrintValues(std::ostream& output) const {
     Size printable_size = GetPrintableSize();
-    for (int y = 0; y < printable_size.rows; ++y) {
-        for (int x = 0; x < printable_size.cols; ++x) {
-            output << (x > 0 ? "\t" : "") << sheet_[y][x].GetValue();
+    for (int row = 0; row < printable_size.rows; ++row) {
+        for (int col = 0; col < printable_size.cols; ++col) {
+            output << (col > 0 ? "\t" : "") << sheet_[row][col].GetValue();
         }
         output << '\n';
     }
@@ -86,9 +62,9 @@ void Sheet::PrintValues(std::ostream& output) const {
 
 void Sheet::PrintTexts(std::ostream& output) const {
     Size printable_size = GetPrintableSize();
-    for (int y = 0; y < printable_size.rows; ++y) {
-        for (int x = 0; x < printable_size.cols; ++x) {
-            output << (x > 0 ? "\t" : "") << sheet_[y][x].GetText();
+    for (int row = 0; row < printable_size.rows; ++row) {
+        for (int col = 0; col < printable_size.cols; ++col) {
+            output << (col > 0 ? "\t" : "") << sheet_[row][col].GetText();
         }
         output << '\n';
     }
@@ -128,6 +104,37 @@ void Sheet::ResizeNewlyCreatedRows(size_t old_size) {
     }
 }
 
+void Sheet::ProcessCellSetting(Position pos, std::string text) {
+    std::string old_cell_state = GetCell(pos)->GetText();
+    sheet_[pos.row][pos.col].Set(text, this);
+    if (sheet_[pos.row][pos.col].GetType() == Cell::Type::Formula) {
+        auto old_dependencies_state = dependencies_;
+        for (const Position& referenced_pos : sheet_[pos.row][pos.col].GetReferencedCells()) {
+            dependencies_[referenced_pos].insert(pos);
+        }
+        if (IsCircularDependent(pos, pos)) {
+            dependencies_ = old_dependencies_state;
+            SetCell(pos, old_cell_state);
+            throw CircularDependencyException("Circular dependency"s);
+        }
+    }
+    ++row_to_cell_count_[pos.row];
+    ++col_to_cell_count_[pos.col];
+}
+
+bool Sheet::CheckPositionCorrectness(Position pos) const {
+    if (!pos.IsValid()) {
+        throw InvalidPositionException("Invalid position"s);
+    }
+    if (sheet_.size() == 0) {
+        return false;
+    }
+    if (pos.row >= static_cast<int>(sheet_.size()) || pos.col >= static_cast<int>(sheet_[0].size())) {
+        return false;
+    }
+    return true;
+}
+
 void Sheet::InvalidateCache(Position pos) {
     GetCell(pos)->InvalidateCache();
     if (!dependencies_.count(pos)) {
@@ -139,7 +146,7 @@ void Sheet::InvalidateCache(Position pos) {
 }
 
 bool Sheet::IsCircularDependent(Position pos, Position initial_pos) {
-    if (!dependencies_.count(pos)) {
+    if (dependencies_.count(pos) == 0) {
         return false;
     }
     if (dependencies_.at(pos).count(initial_pos)) {

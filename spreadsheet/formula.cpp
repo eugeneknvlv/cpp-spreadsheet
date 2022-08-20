@@ -23,8 +23,7 @@ public:
 
     Value Evaluate(const SheetInterface& sheet) const override  { // TODO
         try {
-            double tmp = ast_.Execute(sheet);
-            return tmp;
+            return ast_.Execute(sheet);
         } catch (const FormulaError& exc) {
             return exc;
         }

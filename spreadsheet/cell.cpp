@@ -6,12 +6,12 @@
 #include <optional>
 
 Cell::Cell()
-    : impl_(new EmptyImpl())
+    : impl_(std::make_unique<EmptyImpl>())
     , sheet_ptr_(nullptr)
 {}
 
 Cell::Cell(const SheetInterface* sheet_ptr) 
-    : impl_(new EmptyImpl())
+    : impl_(std::make_unique<EmptyImpl>())
     , sheet_ptr_(sheet_ptr)
 {}
 
@@ -32,6 +32,7 @@ void Cell::Set(std::string text, const SheetInterface* sheet_ptr) {
 
     if (text[0] == FORMULA_SIGN) {
         if (text.length() > 1) {
+            // reset() requires raw pointer
             impl_.reset(new FormulaImpl(text.substr(1), sheet_ptr_));
             type_ = Formula;
         }
@@ -59,7 +60,7 @@ std::string Cell::GetText() const {
 }
 
 void Cell::InvalidateCache() {
-    // TODO
+    impl_->InvalidateCache();
 }
 
 Cell::Type Cell::GetType() const {
@@ -97,7 +98,7 @@ TextImpl::TextImpl(std::string text)
 {}
 
 CellInterface::Value TextImpl::GetValue() const {
-    if (text_[0] == '\'') {
+    if (text_[0] == ESCAPE_SIGN) {
         return text_.substr(1);
     }
     return text_;

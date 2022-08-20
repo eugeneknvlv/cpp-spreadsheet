@@ -38,7 +38,8 @@ private:
     void ResizeSheetIfNeeded(Position new_cell_pos);
     void AdjustMapsAfterErasing(Position erased_pos);
     void ResizeNewlyCreatedRows(size_t old_size);
-
+    void ProcessCellSetting(Position pos, std::string text);
+    bool CheckPositionCorrectness(Position pos) const;
     // Возвращает true, если формульная ячейка на позиции new_cell_pos
     // содержит циклические зависимости.
     // Метод SetCell на основании результата работы этого метода будет
